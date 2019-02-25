@@ -8,7 +8,7 @@
 
 import Bluebird = require("bluebird")
 import chalk from "chalk"
-import { padEnd, keyBy } from "lodash"
+import { padEnd, keyBy, flatten } from "lodash"
 
 import { Module } from "./types/module"
 import { Service } from "./types/service"
@@ -85,9 +85,10 @@ export async function processModules(
     log.info(divider)
   }
 
+  const tasks: BaseTask[] = []
+
   for (const module of modules) {
-    const tasks = await handler(graph, module)
-    await Bluebird.map(tasks, t => garden.addTask(t))
+    tasks.push(...await handler(graph, module))
   }
 
   if (watch && !!logFooter) {
@@ -100,7 +101,7 @@ export async function processModules(
     })
   }
 
-  const results = await garden.processTasks()
+  const results = await garden.processTasks(tasks)
 
   if (!watch) {
     return {
@@ -164,11 +165,11 @@ export async function processModules(
       // Make sure the modules' versions are up to date.
       const changedModules = await graph.getModules(changedModuleNames)
 
-      await Bluebird.map(changedModules, async (m) => {
+      const moduleTasks = flatten(await Bluebird.map(changedModules, async (m) => {
         modulesByName[m.name] = m
-        return Bluebird.map(changeHandler!(graph, m), (task) => garden.addTask(task))
-      })
-      await garden.processTasks()
+        return changeHandler!(graph, m)
+      }))
+      await garden.processTasks(moduleTasks)
     })
   })
 
